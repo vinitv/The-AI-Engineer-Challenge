@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import KaTeX CSS for math rendering */
+@import 'katex/dist/katex.min.css';
+
+/* Custom styles for enhanced visual clarity and contrast */
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  /* Custom scrollbar for better UX */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-card;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-secondary rounded-full;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-accent;
+  }
+
+  /* Enhanced button styles for better contrast */
+  .btn-primary {
+    @apply bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-lg transition-colors duration-200 font-medium;
+  }
+  
+  .btn-secondary {
+    @apply bg-secondary hover:bg-secondary/90 text-secondary-foreground px-4 py-2 rounded-lg transition-colors duration-200 font-medium;
+  }
+
+  /* Input styles with excellent contrast */
+  .input-field {
+    @apply bg-input border border-border text-foreground px-3 py-2 rounded-lg focus:ring-2 focus:ring-ring focus:border-transparent transition-all duration-200;
+  }
+  
+  .input-field::placeholder {
+    @apply text-secondary;
+  }
+}
+
+/* Animation for smooth transitions */
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Markdown content styling for excellent readability and contrast */
+.markdown-content {
+  @apply text-card-foreground;
+}
+
+.markdown-content h1 {
+  @apply text-2xl font-bold mb-4 text-primary;
+}
+
+.markdown-content h2 {
+  @apply text-xl font-bold mb-3 text-primary;
+}
+
+.markdown-content h3 {
+  @apply text-lg font-bold mb-2 text-primary;
+}
+
+.markdown-content h4, .markdown-content h5, .markdown-content h6 {
+  @apply text-base font-bold mb-2 text-primary;
+}
+
+.markdown-content p {
+  @apply mb-3 leading-relaxed;
+}
+
+.markdown-content ul, .markdown-content ol {
+  @apply mb-3 ml-4;
+}
+
+.markdown-content li {
+  @apply mb-1;
+}
+
+.markdown-content ul li {
+  @apply list-disc;
+}
+
+.markdown-content ol li {
+  @apply list-decimal;
+}
+
+.markdown-content blockquote {
+  @apply border-l-4 border-accent pl-4 py-2 mb-3 bg-card/50 rounded-r;
+}
+
+.markdown-content table {
+  @apply w-full border-collapse mb-3;
+}
+
+.markdown-content th, .markdown-content td {
+  @apply border border-border px-3 py-2 text-left;
+}
+
+.markdown-content th {
+  @apply bg-secondary text-secondary-foreground font-medium;
+}
+
+.markdown-content a {
+  @apply text-accent hover:text-accent/80 underline transition-colors;
+}
+
+.markdown-content strong {
+  @apply font-bold text-primary;
+}
+
+.markdown-content em {
+  @apply italic;
+}
+
+.markdown-content hr {
+  @apply border-border my-4;
+}
+
+/* Inline code styling with excellent contrast */
+.markdown-content code:not([class*="language-"]) {
+  @apply bg-input text-accent px-1.5 py-0.5 rounded text-sm font-mono border border-border;
+}
+
+/* Code block styling - beautifully highlighted */
+.markdown-content pre {
+  @apply mb-4 rounded-lg overflow-x-auto;
+}
+
+.markdown-content pre code {
+  @apply bg-transparent text-inherit px-0 py-0 border-0;
+}
+
+/* Math formula styling for KaTeX */
+.katex {
+  @apply text-card-foreground;
+}
+
+.katex-display {
+  @apply my-4;
+}
+
+/* Mermaid diagrams and other special content */
+.markdown-content .mermaid {
+  @apply bg-card p-4 rounded-lg mb-4 text-center;
+} 
