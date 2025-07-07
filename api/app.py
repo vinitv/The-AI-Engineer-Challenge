@@ -42,12 +42,12 @@ california_re_docs = {}  # Store for pre-loaded California real estate documents
 
 # Pre-load California real estate PDFs on startup
 def load_california_re_documents():
-    """Pre-load California real estate PDFs from the files directory"""
+    """Pre-load only relaw.pdf from the files directory to reduce build size"""
     files_dir = "../files"  # Relative to api directory
-    pdf_files = glob.glob(f"{files_dir}/*.pdf")
+    pdf_file = f"{files_dir}/relaw.pdf"
     
-    for pdf_file in pdf_files:
-        try:
+    try:
+        if os.path.exists(pdf_file):
             filename = os.path.basename(pdf_file)
             print(f"Loading California RE document: {filename}")
             
@@ -65,9 +65,11 @@ def load_california_re_documents():
                 "type": "california_re"
             }
             print(f"Successfully loaded {len(chunks)} chunks from {filename}")
+        else:
+            print(f"Warning: {pdf_file} not found")
             
-        except Exception as e:
-            print(f"Error loading {pdf_file}: {e}")
+    except Exception as e:
+        print(f"Error loading {pdf_file}: {e}")
 
 # Load California RE documents on startup
 load_california_re_documents()
