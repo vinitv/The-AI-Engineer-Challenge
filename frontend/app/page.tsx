@@ -4,6 +4,11 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Bot, User, Key, Settings, Loader2, CheckCircle, XCircle, Shield } from 'lucide-react'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 
+// Configuration for API endpoints
+const API_BASE_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://your-backend-url.com'  // Replace with your actual backend URL
+  : 'http://localhost:8000'
+
 // Type definitions for better type safety
 interface Message {
   role: 'user' | 'assistant' | 'developer'
@@ -78,7 +83,7 @@ export default function ChatPage() {
       }
 
       // Send request to FastAPI backend with streaming
-      const response = await fetch('/api/chat', {
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -205,7 +210,7 @@ export default function ChatPage() {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('api_key', apiKey)
-      const res = await fetch('/api/upload', {
+      const res = await fetch(`${API_BASE_URL}/api/upload`, {
         method: 'POST',
         body: formData,
       })
@@ -241,7 +246,7 @@ export default function ChatPage() {
         model: model,
         api_key: apiKey
       }
-      const response = await fetch('/api/rag_chat', {
+      const response = await fetch(`${API_BASE_URL}/api/rag_chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)
