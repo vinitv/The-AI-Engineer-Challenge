@@ -44,24 +44,71 @@ async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...)):
     Upload a PDF file, extract and chunk text, store in memory.
     Returns a document ID for future chat queries.
     """
-    if not file.filename or not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    # Enhanced file validation
+    if not file:
+        raise HTTPException(status_code=400, detail="No file provided.")
+    
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided.")
+    
+    # Check file extension (case-insensitive)
+    filename_lower = file.filename.lower()
+    if not filename_lower.endswith('.pdf'):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Only PDF files are supported. Received: {file.filename} (type: {file.content_type})"
+        )
+    
+    # Check content type
+    if file.content_type and file.content_type not in ['application/pdf', 'application/octet-stream']:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid content type. Expected PDF, got: {file.content_type}"
+        )
+    
     try:
+        # Read file content
+        file_content = await file.read()
+        if not file_content:
+            raise HTTPException(status_code=400, detail="File is empty.")
+        
         # Save uploaded file to a temp location
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(await file.read())
+            tmp.write(file_content)
             tmp_path = tmp.name
+        
         # Extract text from PDF
         loader = PDFLoader(tmp_path)
         documents = loader.load_documents()  # List[str]
+        
+        if not documents:
+            raise HTTPException(status_code=400, detail="No text could be extracted from the PDF.")
+        
         splitter = CharacterTextSplitter()
         chunks = splitter.split_texts(documents)  # List[str]
+        
+        if not chunks:
+            raise HTTPException(status_code=400, detail="No text chunks could be created from the PDF.")
+        
         # Store chunks and API key in memory (no embeddings yet)
         doc_id = str(uuid.uuid4())
         doc_store[doc_id] = {"chunks": chunks, "api_key": api_key}
-        return {"doc_id": doc_id}
+        
+        # Clean up temp file
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass  # Ignore cleanup errors
+        
+        return {"doc_id": doc_id, "chunks_count": len(chunks)}
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {e}")
+        # Log the error for debugging
+        print(f"PDF upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
 
 class RAGChatRequest(BaseModel):
     doc_id: str

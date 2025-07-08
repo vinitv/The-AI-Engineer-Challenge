@@ -199,6 +199,13 @@ export default function ChatPage() {
       setUploadError('Please select a PDF file and enter your OpenAI API key.')
       return
     }
+    
+    // Validate file type on frontend
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setUploadError('Please select a PDF file.')
+      return
+    }
+    
     setUploading(true)
     setUploadError('')
     try {
@@ -209,12 +216,20 @@ export default function ChatPage() {
         method: 'POST',
         body: formData,
       })
-      if (!res.ok) throw new Error('Failed to upload PDF')
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ detail: 'Upload failed' }))
+        throw new Error(errorData.detail || `Upload failed with status ${res.status}`)
+      }
+      
       const data = await res.json()
       setDocId(data.doc_id)
       setRagMode(true)
+      setUploadError('') // Clear any previous errors
     } catch (err) {
-      setUploadError('Upload failed. Only PDF files are supported.')
+      const errorMessage = err instanceof Error ? err.message : 'Upload failed. Please try again.'
+      setUploadError(errorMessage)
+      console.error('Upload error:', err)
     } finally {
       setUploading(false)
     }
