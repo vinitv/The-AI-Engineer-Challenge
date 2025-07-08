@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, Key, Settings, Loader2, CheckCircle, XCircle, Shield, Upload, FileText, Building2 } from 'lucide-react'
+import { Send, Bot, User, Key, Settings, Loader2, CheckCircle, XCircle, Shield } from 'lucide-react'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 
 // Type definitions for better type safety
@@ -18,26 +18,11 @@ interface ChatRequest {
   api_key: string
 }
 
-interface Document {
-  doc_id: string
-  filename: string
-  type: 'california_re' | 'user_upload'
-  chunks_count: number
-}
-
-interface RAGChatRequest {
-  doc_ids: string[]
-  user_message: string
-  developer_message?: string
-  model: string
-  api_key: string
-}
-
 export default function ChatPage() {
   // State management for the chat application
   const [messages, setMessages] = useState<Message[]>([])
   const [userInput, setUserInput] = useState('')
-  const [developerMessage, setDeveloperMessage] = useState('You are a knowledgeable California real estate assistant. Answer questions about California real estate law, regulations, and procedures based on the provided documents.')
+  const [developerMessage, setDeveloperMessage] = useState('You are a helpful AI assistant. Please provide accurate and helpful responses.')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('gpt-4.1-mini')
   const [isLoading, setIsLoading] = useState(false)
@@ -45,12 +30,10 @@ export default function ChatPage() {
   const [error, setError] = useState('')
   const [isValidatingKey, setIsValidatingKey] = useState(false)
   const [keyValidationStatus, setKeyValidationStatus] = useState<'idle' | 'valid' | 'invalid'>('idle')
-  const [selectedDocs, setSelectedDocs] = useState<string[]>([])
+  const [docId, setDocId] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [ragMode, setRagMode] = useState(false)
-  const [availableDocs, setAvailableDocs] = useState<{california_re_documents: Document[], user_documents: Document[]}>({california_re_documents: [], user_documents: []})
-  const [showDocumentSelector, setShowDocumentSelector] = useState(false)
   
   // Refs for auto-scrolling and focus management
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -64,26 +47,6 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
-
-  // Load available documents on component mount
-  useEffect(() => {
-    loadAvailableDocuments()
-  }, [])
-
-  const loadAvailableDocuments = async () => {
-    try {
-      const response = await fetch('/api/available_docs')
-      if (response.ok) {
-        const data = await response.json()
-        setAvailableDocs(data)
-        // Start with no documents selected by default
-        setSelectedDocs([])
-        setRagMode(false)
-      }
-    } catch (err) {
-      console.error('Failed to load available documents:', err)
-    }
-  }
 
   // Handle sending messages to the API
   const handleSendMessage = async () => {
@@ -229,40 +192,27 @@ export default function ChatPage() {
     }
   }
 
-  // Handle multiple PDF uploads
+  // Handle PDF upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (files.length === 0 || !apiKey.trim()) {
-      setUploadError('Please select PDF files and enter your OpenAI API key.')
+    const file = e.target.files?.[0]
+    if (!file || !apiKey.trim()) {
+      setUploadError('Please select a PDF file and enter your OpenAI API key.')
       return
     }
-    
     setUploading(true)
     setUploadError('')
-    
     try {
       const formData = new FormData()
-      files.forEach(file => {
-        formData.append('files', file)
-      })
+      formData.append('file', file)
       formData.append('api_key', apiKey)
-      
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       })
-      
-      if (!res.ok) throw new Error('Failed to upload PDFs')
-      
+      if (!res.ok) throw new Error('Failed to upload PDF')
       const data = await res.json()
-      console.log('Uploaded documents:', data.uploaded_docs)
-      
-      // Refresh available documents
-      await loadAvailableDocuments()
-      
-      // Auto-enable RAG mode
+      setDocId(data.doc_id)
       setRagMode(true)
-      
     } catch (err) {
       setUploadError('Upload failed. Only PDF files are supported.')
     } finally {
@@ -272,8 +222,7 @@ export default function ChatPage() {
 
   // Handle sending messages (RAG mode)
   const handleSendRagMessage = async () => {
-    if (!userInput.trim() || !apiKey.trim() || isLoading || selectedDocs.length === 0) return
-    
+    if (!userInput.trim() || !apiKey.trim() || isLoading || !docId) return
     setError('')
     const userMessage: Message = {
       role: 'user',
@@ -284,39 +233,29 @@ export default function ChatPage() {
     const currentUserInput = userInput
     setUserInput('')
     setIsLoading(true)
-    
     try {
-      const requestBody: RAGChatRequest = {
-        doc_ids: selectedDocs,
+      const requestBody = {
+        doc_id: docId,
         developer_message: developerMessage,
         user_message: currentUserInput,
         model: model,
         api_key: apiKey
       }
-      
       const response = await fetch('/api/rag_chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)
       })
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        const errorMessage = errorData.detail || `HTTP error! status: ${response.status}`
-        throw new Error(errorMessage)
-      }
-      
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
       if (!reader) throw new Error('Response body is not readable')
-      
       const assistantMessage: Message = {
         role: 'assistant',
         content: '',
         timestamp: new Date()
       }
       setMessages(prev => [...prev, assistantMessage])
-      
       let accumulatedContent = ''
       while (true) {
         const { done, value } = await reader.read()
@@ -331,48 +270,30 @@ export default function ChatPage() {
           )
         )
       }
-      
       setTimeout(() => {
         userInputRef.current?.focus()
       }, 100)
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to send message. Please check your API key and try again.'
-      setError(errorMessage)
+      setError(err instanceof Error ? err.message : 'Failed to send message. Please check your API key and try again.')
       setMessages(prev => prev.slice(0, -1))
     } finally {
       setIsLoading(false)
     }
   }
 
-  const toggleDocumentSelection = (docId: string) => {
-    setSelectedDocs(prev => 
-      prev.includes(docId) 
-        ? prev.filter(id => id !== docId)
-        : [...prev, docId]
-    )
-  }
-
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
-      {/* Header with California real estate branding */}
+      {/* Header with excellent contrast */}
       <header className="bg-card border-b border-border p-4 flex justify-between items-center">
         <div className="flex items-center space-x-3">
-          <Building2 className="w-8 h-8 text-primary" />
+          <Bot className="w-8 h-8 text-primary" />
           <div>
-            <h1 className="text-xl font-bold text-card-foreground">California Real Estate Assistant</h1>
-            <p className="text-sm text-secondary">Powered by California RE Law & OpenAI</p>
+            <h1 className="text-xl font-bold text-card-foreground">AI Chat Assistant</h1>
+            <p className="text-sm text-secondary">Powered by OpenAI GPT Models</p>
           </div>
         </div>
         
         <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setShowDocumentSelector(!showDocumentSelector)}
-            className="btn-secondary flex items-center space-x-2"
-          >
-            <FileText className="w-4 h-4" />
-            <span className="hidden sm:inline">Documents</span>
-          </button>
-          
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="btn-secondary flex items-center space-x-2"
@@ -390,55 +311,6 @@ export default function ChatPage() {
           </button>
         </div>
       </header>
-
-      {/* Document Selector Panel */}
-      {showDocumentSelector && (
-        <div className="bg-card border-b border-border p-4 space-y-4 fade-in">
-          <h3 className="font-semibold text-card-foreground">Select Documents for RAG Chat</h3>
-          
-          {/* California RE Documents */}
-          <div>
-            <h4 className="text-sm font-medium text-card-foreground mb-2">California Real Estate Law Documents</h4>
-            <div className="space-y-2">
-              {availableDocs.california_re_documents.map((doc) => (
-                <label key={doc.doc_id} className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedDocs.includes(doc.doc_id)}
-                    onChange={() => toggleDocumentSelection(doc.doc_id)}
-                    className="rounded"
-                  />
-                  <span className="text-sm">{doc.filename} ({doc.chunks_count} chunks)</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          
-          {/* User Uploaded Documents */}
-          {availableDocs.user_documents.length > 0 && (
-            <div>
-              <h4 className="text-sm font-medium text-card-foreground mb-2">Your Uploaded Documents</h4>
-              <div className="space-y-2">
-                {availableDocs.user_documents.map((doc) => (
-                  <label key={doc.doc_id} className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedDocs.includes(doc.doc_id)}
-                      onChange={() => toggleDocumentSelection(doc.doc_id)}
-                      className="rounded"
-                    />
-                    <span className="text-sm">{doc.filename} ({doc.chunks_count} chunks)</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          <div className="text-xs text-secondary">
-            Selected: {selectedDocs.length} document(s)
-          </div>
-        </div>
-      )}
 
       {/* Settings Panel with good contrast */}
       {showSettings && (
@@ -562,9 +434,9 @@ export default function ChatPage() {
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         {messages.length === 0 ? (
           <div className="text-center text-secondary mt-20">
-            <Building2 className="w-16 h-16 mx-auto mb-4 text-primary" />
-            <h2 className="text-xl font-semibold text-card-foreground mb-2">California Real Estate Assistant</h2>
-            <p>Ask questions about California real estate law, regulations, and procedures.</p>
+            <Bot className="w-16 h-16 mx-auto mb-4 text-primary" />
+            <h2 className="text-xl font-semibold text-card-foreground mb-2">Welcome to AI Chat</h2>
+            <p>Start a conversation by typing a message below.</p>
             {!apiKey ? (
               <p className="mt-2 text-sm">Don't forget to add your OpenAI API key in settings!</p>
             ) : keyValidationStatus === 'invalid' ? (
@@ -572,11 +444,6 @@ export default function ChatPage() {
             ) : keyValidationStatus === 'idle' ? (
               <p className="mt-2 text-sm text-secondary">Consider testing your API key in settings first.</p>
             ) : null}
-            {ragMode && selectedDocs.length > 0 && (
-              <p className="mt-2 text-sm text-green-400">
-                ✓ RAG mode enabled with {selectedDocs.length} document(s) selected
-              </p>
-            )}
           </div>
         ) : (
           messages.map((message, index) => (
@@ -598,24 +465,24 @@ export default function ChatPage() {
                 }
               </div>
               
-              {/* Message content with proper contrast and rich text rendering */}
-              <div className={`max-w-[70%] p-3 rounded-lg ${
-                message.role === 'user'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-card text-card-foreground border border-border'
-              }`}>
-                {message.role === 'user' ? (
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                ) : (
-                  <MarkdownRenderer 
-                    content={message.content} 
-                    className="prose prose-invert max-w-none"
-                  />
-                )}
-                <span className={`text-xs mt-2 block opacity-70`}>
-                  {message.timestamp.toLocaleTimeString()}
-                </span>
-              </div>
+                             {/* Message content with proper contrast and rich text rendering */}
+               <div className={`max-w-[70%] p-3 rounded-lg ${
+                 message.role === 'user'
+                   ? 'bg-primary text-primary-foreground'
+                   : 'bg-card text-card-foreground border border-border'
+               }`}>
+                 {message.role === 'user' ? (
+                   <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                 ) : (
+                   <MarkdownRenderer 
+                     content={message.content} 
+                     className="prose prose-invert max-w-none"
+                   />
+                 )}
+                 <span className={`text-xs mt-2 block opacity-70`}>
+                   {message.timestamp.toLocaleTimeString()}
+                 </span>
+               </div>
             </div>
           ))
         )}
@@ -629,7 +496,7 @@ export default function ChatPage() {
             <div className="bg-card text-card-foreground border border-border p-3 rounded-lg">
               <div className="flex items-center space-x-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Analyzing California real estate documents...</span>
+                <span>Thinking...</span>
               </div>
             </div>
           </div>
@@ -659,8 +526,8 @@ export default function ChatPage() {
                   : keyValidationStatus === 'invalid'
                   ? "Please validate your API key first"
                   : keyValidationStatus === 'valid'
-                  ? "Ask about California real estate law, regulations, or procedures..."
-                  : "Ask about California real estate law, regulations, or procedures... (consider testing your API key first)"
+                  ? "Type your message..."
+                  : "Type your message... (consider testing your API key first)"
               }
               disabled={!apiKey || isLoading || keyValidationStatus === 'invalid'}
               rows={1}
@@ -669,7 +536,7 @@ export default function ChatPage() {
           
           <button
             onClick={ragMode ? handleSendRagMessage : handleSendMessage}
-            disabled={!userInput.trim() || !apiKey || isLoading || keyValidationStatus === 'invalid' || (ragMode && selectedDocs.length === 0)}
+            disabled={!userInput.trim() || !apiKey || isLoading || keyValidationStatus === 'invalid' || (ragMode && !docId)}
             className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
@@ -687,29 +554,14 @@ export default function ChatPage() {
 
       {/* Upload and RAG toggle UI */}
       <div className="p-4 bg-card border-b border-border flex flex-col gap-2">
-        <label className="font-semibold">Upload additional PDF files:</label>
-        <input 
-          type="file" 
-          accept="application/pdf" 
-          multiple
-          onChange={handleFileUpload} 
-          disabled={uploading} 
-          className="file:mr-2 file:py-1 file:px-3 file:rounded file:border file:border-border file:bg-secondary file:text-foreground" 
-        />
+        <label className="font-semibold">Upload a PDF to chat with:</label>
+        <input type="file" accept="application/pdf" onChange={handleFileUpload} disabled={uploading} className="file:mr-2 file:py-1 file:px-3 file:rounded file:border file:border-border file:bg-secondary file:text-foreground" />
         {uploading && <span className="text-sm text-secondary">Uploading...</span>}
         {uploadError && <span className="text-sm text-red-500">{uploadError}</span>}
-        
+        {docId && <span className="text-sm text-green-600">PDF uploaded. You can now chat with it!</span>}
         <div className="flex items-center gap-2 mt-2">
-          <input 
-            type="checkbox" 
-            id="ragMode" 
-            checked={ragMode} 
-            onChange={e => setRagMode(e.target.checked)} 
-            disabled={selectedDocs.length === 0}
-          />
-          <label htmlFor="ragMode" className="text-sm">
-            RAG mode with {selectedDocs.length} document(s) selected
-          </label>
+          <input type="checkbox" id="ragMode" checked={ragMode} onChange={e => setRagMode(e.target.checked)} disabled={!docId} />
+          <label htmlFor="ragMode" className="text-sm">Chat with PDF (RAG mode)</label>
         </div>
       </div>
     </div>
