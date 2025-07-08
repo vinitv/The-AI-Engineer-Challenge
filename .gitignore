@@ -13,6 +13,16 @@ yarn-error.log*
 out/
 build/
 
+# Package lock files (should only be in frontend directory)
+package-lock.json
+package-lock 2.json
+
+# Large files and test data
+files/
+*.pdf
+*.zip
+*.tar.gz
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
