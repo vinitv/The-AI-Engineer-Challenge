@@ -206,6 +206,13 @@ export default function ChatPage() {
       return
     }
     
+    // Check file size (10MB limit)
+    const maxSize = 10 * 1024 * 1024 // 10MB
+    if (file.size > maxSize) {
+      setUploadError(`File too large. Maximum size is 10MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`)
+      return
+    }
+    
     setUploading(true)
     setUploadError('')
     try {
@@ -570,6 +577,7 @@ export default function ChatPage() {
       {/* Upload and RAG toggle UI */}
       <div className="p-4 bg-card border-b border-border flex flex-col gap-2">
         <label className="font-semibold">Upload a PDF to chat with:</label>
+        <p className="text-xs text-secondary mb-2">Maximum file size: 10MB</p>
         <input type="file" accept="application/pdf" onChange={handleFileUpload} disabled={uploading} className="file:mr-2 file:py-1 file:px-3 file:rounded file:border file:border-border file:bg-secondary file:text-foreground" />
         {uploading && <span className="text-sm text-secondary">Uploading...</span>}
         {uploadError && <span className="text-sm text-red-500">{uploadError}</span>}

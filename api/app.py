@@ -27,6 +27,9 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers in requests
 )
 
+# File size limits (in bytes)
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit for Vercel Edge Runtime
+
 # Define the data model for chat requests using Pydantic
 # This ensures incoming request data is properly validated
 class ChatRequest(BaseModel):
@@ -67,10 +70,18 @@ async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...)):
         )
     
     try:
-        # Read file content
+        # Read file content with size validation
         file_content = await file.read()
         if not file_content:
             raise HTTPException(status_code=400, detail="File is empty.")
+        
+        # Check file size
+        file_size = len(file_content)
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413, 
+                detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB. Your file is {file_size // (1024*1024)}MB."
+            )
         
         # Save uploaded file to a temp location
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
