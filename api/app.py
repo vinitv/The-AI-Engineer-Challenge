@@ -13,9 +13,10 @@ import tempfile
 import uuid
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
 import asyncio
+import json
 
 # Initialize FastAPI application with a title
-app = FastAPI(title="OpenAI Chat API")
+app = FastAPI(title="Sales Research AI Assistant")
 
 # Configure CORS (Cross-Origin Resource Sharing) middleware
 # This allows the API to be accessed from different domains/origins
@@ -30,6 +31,28 @@ app.add_middleware(
 # File size limits (in bytes)
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit for Vercel Edge Runtime
 
+# Sales-focused system prompts
+SALES_SYSTEM_PROMPT = """You are an expert sales research assistant helping pre-sales engineers and sales representatives analyze potential customers. Your role is to:
+
+1. Analyze company documents (10-K reports, financial statements, press releases, etc.) to identify:
+   - Company size, revenue, growth trends
+   - Key business challenges and pain points
+   - Technology stack and infrastructure
+   - Decision makers and organizational structure
+   - Competitive landscape and market position
+   - Recent news, acquisitions, or strategic initiatives
+
+2. Provide actionable insights for sales conversations including:
+   - Potential use cases for your products/services
+   - Pain points that your solution could address
+   - Key stakeholders to engage with
+   - Competitive advantages and differentiators
+   - Risk factors and challenges to be aware of
+
+3. Generate 3-4 relevant follow-up questions that would help deepen the research and identify sales opportunities.
+
+Always be professional, accurate, and focus on insights that would be valuable for sales conversations."""
+
 # Define the data model for chat requests using Pydantic
 # This ensures incoming request data is properly validated
 class ChatRequest(BaseModel):
@@ -38,14 +61,21 @@ class ChatRequest(BaseModel):
     model: Optional[str] = "gpt-4.1-mini"  # Optional model selection with default
     api_key: str          # OpenAI API key for authentication
 
+class RAGChatRequest(BaseModel):
+    doc_id: str
+    user_message: str
+    developer_message: Optional[str] = SALES_SYSTEM_PROMPT
+    model: Optional[str] = "gpt-4.1-mini"
+    api_key: str
+
 # In-memory store for indexed documents (for demo purposes)
-doc_store = {}  # doc_id -> {"chunks": List[str], "api_key": str}
+doc_store = {}  # doc_id -> {"chunks": List[str], "api_key": str, "company_name": str}
 
 @app.post("/api/upload")
-async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...)):
+async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...), company_name: str = Form(...)):
     """
-    Upload a PDF file, extract and chunk text, store in memory.
-    Returns a document ID for future chat queries.
+    Upload a company document (PDF), extract and chunk text, store in memory.
+    Returns a document ID for future research queries.
     """
     # Enhanced file validation
     if not file:
@@ -101,9 +131,14 @@ async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...)):
         if not chunks:
             raise HTTPException(status_code=400, detail="No text chunks could be created from the PDF.")
         
-        # Store chunks and API key in memory (no embeddings yet)
+        # Store chunks, API key, and company name in memory (no embeddings yet)
         doc_id = str(uuid.uuid4())
-        doc_store[doc_id] = {"chunks": chunks, "api_key": api_key}
+        doc_store[doc_id] = {
+            "chunks": chunks, 
+            "api_key": api_key, 
+            "company_name": company_name,
+            "filename": file.filename
+        }
         
         # Clean up temp file
         try:
@@ -111,7 +146,12 @@ async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...)):
         except:
             pass  # Ignore cleanup errors
         
-        return {"doc_id": doc_id, "chunks_count": len(chunks)}
+        return {
+            "doc_id": doc_id, 
+            "chunks_count": len(chunks),
+            "company_name": company_name,
+            "filename": file.filename
+        }
         
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -121,17 +161,10 @@ async def upload_pdf(file: UploadFile = File(...), api_key: str = Form(...)):
         print(f"PDF upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
 
-class RAGChatRequest(BaseModel):
-    doc_id: str
-    user_message: str
-    developer_message: Optional[str] = "You are a helpful AI assistant. Answer using the provided document."
-    model: Optional[str] = "gpt-4.1-mini"
-    api_key: str
-
 @app.post("/api/rag_chat")
 async def rag_chat(request: RAGChatRequest):
     """
-    Chat with an indexed PDF using a simple RAG pipeline.
+    Research a company using uploaded documents with sales-focused analysis and follow-up questions.
     """
     doc_data = doc_store.get(request.doc_id)
     if doc_data is None:
@@ -147,11 +180,31 @@ async def rag_chat(request: RAGChatRequest):
         db = await db.abuild_from_list(doc_data["chunks"])
         
         # Retrieve relevant context from the PDF
-        top_k = 3
+        top_k = 5  # Increased for better context
         results = db.search_by_text(request.user_message, k=top_k, return_as_text=True)
         context_text = "\n".join(results)  # type: ignore - results is List[str] when return_as_text=True
-        # Compose prompt for OpenAI
-        prompt = f"{request.developer_message}\n\nContext from PDF:\n{context_text}\n\nUser question: {request.user_message}"
+        
+        # Compose sales-focused prompt
+        prompt = f"""{request.developer_message}
+
+Company: {doc_data['company_name']}
+Document: {doc_data['filename']}
+
+Context from company documents:
+{context_text}
+
+User question: {request.user_message}
+
+Please provide a comprehensive analysis and then generate 3-4 relevant follow-up questions that would help with sales research. Format your response as:
+
+ANALYSIS:
+[Your detailed analysis here]
+
+FOLLOW_UP_QUESTIONS:
+1. [First follow-up question]
+2. [Second follow-up question]
+3. [Third follow-up question]
+4. [Fourth follow-up question]"""
         
         client = OpenAI(api_key=doc_data["api_key"])
         model_name = request.model if request.model else "gpt-4.1-mini"
@@ -167,6 +220,66 @@ async def rag_chat(request: RAGChatRequest):
                 if chunk.choices[0].delta.content is not None:
                     yield chunk.choices[0].delta.content
         return StreamingResponse(generate(), media_type="text/plain")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/generate_followup")
+async def generate_followup_questions(request: RAGChatRequest):
+    """
+    Generate follow-up questions based on the current conversation context.
+    """
+    doc_data = doc_store.get(request.doc_id)
+    if doc_data is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    
+    try:
+        client = OpenAI(api_key=doc_data["api_key"])
+        model_name = request.model if request.model else "gpt-4.1-mini"
+        
+        prompt = f"""Based on the user's question about {doc_data['company_name']}: "{request.user_message}"
+
+Generate 4 relevant follow-up questions that would help with sales research. Focus on:
+- Understanding their business challenges
+- Identifying decision makers and stakeholders
+- Exploring their technology needs
+- Understanding their competitive landscape
+- Finding potential use cases for your solutions
+
+Format as a JSON array of strings:
+["Question 1", "Question 2", "Question 3", "Question 4"]"""
+        
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": prompt},
+            ],
+            temperature=0.7
+        )
+        
+        # Parse the response to extract questions
+        content = response.choices[0].message.content
+        if not content:
+            return {"questions": []}
+            
+        try:
+            # Try to parse as JSON
+            questions = json.loads(content)
+            if isinstance(questions, list):
+                return {"questions": questions}
+        except:
+            # If JSON parsing fails, extract questions manually
+            lines = content.split('\n')
+            questions = []
+            for line in lines:
+                line = line.strip()
+                if line and (line.startswith('"') or line.startswith('-') or line.startswith('•')):
+                    # Clean up the question
+                    question = line.lstrip('"-•').rstrip('",').strip()
+                    if question and len(question) > 10:
+                        questions.append(question)
+            
+            return {"questions": questions[:4]}  # Return max 4 questions
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -210,5 +323,4 @@ async def health_check():
 # Entry point for running the application directly
 if __name__ == "__main__":
     import uvicorn
-    # Start the server on all network interfaces (0.0.0.0) on port 8000
     uvicorn.run(app, host="0.0.0.0", port=8000)

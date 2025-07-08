@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, Key, Settings, Loader2, CheckCircle, XCircle, Shield } from 'lucide-react'
+import { Send, Bot, User, Key, Settings, Loader2, CheckCircle, XCircle, Shield, Building2, FileText, Lightbulb } from 'lucide-react'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 
 // Type definitions for better type safety
@@ -9,6 +9,7 @@ interface Message {
   role: 'user' | 'assistant' | 'developer'
   content: string
   timestamp: Date
+  followUpQuestions?: string[]
 }
 
 interface ChatRequest {
@@ -18,8 +19,15 @@ interface ChatRequest {
   api_key: string
 }
 
-export default function ChatPage() {
-  // State management for the chat application
+interface CompanyDocument {
+  doc_id: string
+  company_name: string
+  filename: string
+  chunks_count: number
+}
+
+export default function SalesResearchPage() {
+  // State management for the sales research application
   const [messages, setMessages] = useState<Message[]>([])
   const [userInput, setUserInput] = useState('')
   const [developerMessage, setDeveloperMessage] = useState('You are a helpful AI assistant. Please provide accurate and helpful responses.')
@@ -30,10 +38,12 @@ export default function ChatPage() {
   const [error, setError] = useState('')
   const [isValidatingKey, setIsValidatingKey] = useState(false)
   const [keyValidationStatus, setKeyValidationStatus] = useState<'idle' | 'valid' | 'invalid'>('idle')
-  const [docId, setDocId] = useState<string | null>(null)
+  const [companyDocument, setCompanyDocument] = useState<CompanyDocument | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [ragMode, setRagMode] = useState(false)
+  const [companyName, setCompanyName] = useState('')
+  const [generatingFollowUp, setGeneratingFollowUp] = useState(false)
   
   // Refs for auto-scrolling and focus management
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -192,11 +202,11 @@ export default function ChatPage() {
     }
   }
 
-  // Handle PDF upload
+  // Handle company document upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !apiKey.trim()) {
-      setUploadError('Please select a PDF file and enter your OpenAI API key.')
+    if (!file || !apiKey.trim() || !companyName.trim()) {
+      setUploadError('Please select a PDF file, enter your OpenAI API key, and provide a company name.')
       return
     }
     
@@ -219,6 +229,7 @@ export default function ChatPage() {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('api_key', apiKey)
+      formData.append('company_name', companyName)
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
@@ -230,7 +241,7 @@ export default function ChatPage() {
       }
       
       const data = await res.json()
-      setDocId(data.doc_id)
+      setCompanyDocument(data)
       setRagMode(true)
       setUploadError('') // Clear any previous errors
     } catch (err) {
@@ -244,7 +255,7 @@ export default function ChatPage() {
 
   // Handle sending messages (RAG mode)
   const handleSendRagMessage = async () => {
-    if (!userInput.trim() || !apiKey.trim() || isLoading || !docId) return
+    if (!userInput.trim() || !apiKey.trim() || isLoading || !companyDocument) return
     setError('')
     const userMessage: Message = {
       role: 'user',
@@ -257,7 +268,7 @@ export default function ChatPage() {
     setIsLoading(true)
     try {
       const requestBody = {
-        doc_id: docId,
+        doc_id: companyDocument.doc_id,
         developer_message: developerMessage,
         user_message: currentUserInput,
         model: model,
@@ -292,6 +303,10 @@ export default function ChatPage() {
           )
         )
       }
+      
+      // Generate follow-up questions
+      await generateFollowUpQuestions(currentUserInput)
+      
       setTimeout(() => {
         userInputRef.current?.focus()
       }, 100)
@@ -303,15 +318,55 @@ export default function ChatPage() {
     }
   }
 
+  // Generate follow-up questions
+  const generateFollowUpQuestions = async (userMessage: string) => {
+    if (!companyDocument) return
+    
+    setGeneratingFollowUp(true)
+    try {
+      const response = await fetch('/api/generate_followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          doc_id: companyDocument.doc_id,
+          user_message: userMessage,
+          model: model,
+          api_key: apiKey
+        })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setMessages(prev => 
+          prev.map((msg, index) => 
+            index === prev.length - 1 && msg.role === 'assistant'
+              ? { ...msg, followUpQuestions: data.questions }
+              : msg
+          )
+        )
+      }
+    } catch (err) {
+      console.error('Failed to generate follow-up questions:', err)
+    } finally {
+      setGeneratingFollowUp(false)
+    }
+  }
+
+  // Handle follow-up question click
+  const handleFollowUpClick = (question: string) => {
+    setUserInput(question)
+    userInputRef.current?.focus()
+  }
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
       {/* Header with excellent contrast */}
       <header className="bg-card border-b border-border p-4 flex justify-between items-center">
         <div className="flex items-center space-x-3">
-          <Bot className="w-8 h-8 text-primary" />
+          <Building2 className="w-8 h-8 text-primary" />
           <div>
-            <h1 className="text-xl font-bold text-card-foreground">AI Chat Assistant</h1>
-            <p className="text-sm text-secondary">Powered by OpenAI GPT Models</p>
+            <h1 className="text-xl font-bold text-card-foreground">Sales Research Assistant</h1>
+            <p className="text-sm text-secondary">AI-powered customer research for pre-sales & sales teams</p>
           </div>
         </div>
         
@@ -354,40 +409,16 @@ export default function ChatPage() {
                   }}
                   className="input-field flex-1"
                   placeholder="sk-..."
-                  required
                 />
                 <button
                   onClick={validateApiKey}
-                  disabled={!apiKey.trim() || isValidatingKey}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 flex items-center space-x-1 min-w-[80px] justify-center ${
-                    keyValidationStatus === 'valid'
-                      ? 'bg-green-600 hover:bg-green-700 text-white'
-                      : keyValidationStatus === 'invalid'
-                      ? 'bg-red-600 hover:bg-red-700 text-white'
-                      : 'bg-secondary hover:bg-secondary/90 text-secondary-foreground'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  title={
-                    keyValidationStatus === 'valid'
-                      ? 'API key is valid'
-                      : keyValidationStatus === 'invalid'
-                      ? 'API key is invalid'
-                      : 'Test API key'
-                  }
+                  disabled={isValidatingKey || !apiKey.trim()}
+                  className="btn-secondary px-3"
                 >
                   {isValidatingKey ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span className="hidden sm:inline">Testing</span>
-                    </>
-                  ) : keyValidationStatus === 'valid' ? (
-                    <>
-                      <CheckCircle className="w-4 h-4" />
-                      <span className="hidden sm:inline">Valid</span>
-                    </>
-                  ) : keyValidationStatus === 'invalid' ? (
-                    <>
-                      <XCircle className="w-4 h-4" />
-                      <span className="hidden sm:inline">Invalid</span>
                     </>
                   ) : (
                     <>
@@ -456,13 +487,13 @@ export default function ChatPage() {
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         {messages.length === 0 ? (
           <div className="text-center text-secondary mt-20">
-            <Bot className="w-16 h-16 mx-auto mb-4 text-primary" />
-            <h2 className="text-xl font-semibold text-card-foreground mb-2">Welcome to AI Chat</h2>
-            <p>Start a conversation by typing a message below.</p>
+            <Building2 className="w-16 h-16 mx-auto mb-4 text-primary" />
+            <h2 className="text-xl font-semibold text-card-foreground mb-2">Welcome to Sales Research Assistant</h2>
+            <p>Upload company documents and start researching potential customers.</p>
             {!apiKey ? (
               <p className="mt-2 text-sm">Don't forget to add your OpenAI API key in settings!</p>
             ) : keyValidationStatus === 'invalid' ? (
-              <p className="mt-2 text-sm text-red-400">Please fix your API key in settings before chatting.</p>
+              <p className="mt-2 text-sm text-red-400">Please fix your API key in settings before researching.</p>
             ) : keyValidationStatus === 'idle' ? (
               <p className="mt-2 text-sm text-secondary">Consider testing your API key in settings first.</p>
             ) : null}
@@ -487,24 +518,47 @@ export default function ChatPage() {
                 }
               </div>
               
-                             {/* Message content with proper contrast and rich text rendering */}
-               <div className={`max-w-[70%] p-3 rounded-lg ${
-                 message.role === 'user'
-                   ? 'bg-primary text-primary-foreground'
-                   : 'bg-card text-card-foreground border border-border'
-               }`}>
-                 {message.role === 'user' ? (
-                   <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                 ) : (
-                   <MarkdownRenderer 
-                     content={message.content} 
-                     className="prose prose-invert max-w-none"
-                   />
-                 )}
-                 <span className={`text-xs mt-2 block opacity-70`}>
-                   {message.timestamp.toLocaleTimeString()}
-                 </span>
-               </div>
+              {/* Message content with proper contrast and rich text rendering */}
+              <div className={`max-w-[70%] p-3 rounded-lg ${
+                message.role === 'user'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-card text-card-foreground border border-border'
+              }`}>
+                {message.role === 'user' ? (
+                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                ) : (
+                  <div>
+                    <MarkdownRenderer 
+                      content={message.content} 
+                      className="prose prose-invert max-w-none"
+                    />
+                    
+                    {/* Follow-up questions */}
+                    {message.followUpQuestions && message.followUpQuestions.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-border">
+                        <div className="flex items-center mb-2">
+                          <Lightbulb className="w-4 h-4 mr-2 text-yellow-500" />
+                          <span className="text-sm font-medium text-card-foreground">Suggested Follow-up Questions:</span>
+                        </div>
+                        <div className="space-y-2">
+                          {message.followUpQuestions.map((question, qIndex) => (
+                            <button
+                              key={qIndex}
+                              onClick={() => handleFollowUpClick(question)}
+                              className="block w-full text-left p-2 text-sm bg-accent hover:bg-accent/80 rounded border border-border transition-colors"
+                            >
+                              {question}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <span className={`text-xs mt-2 block opacity-70`}>
+                  {message.timestamp.toLocaleTimeString()}
+                </span>
+              </div>
             </div>
           ))
         )}
@@ -518,7 +572,22 @@ export default function ChatPage() {
             <div className="bg-card text-card-foreground border border-border p-3 rounded-lg">
               <div className="flex items-center space-x-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Thinking...</span>
+                <span>Analyzing company data...</span>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Follow-up questions loading */}
+        {generatingFollowUp && (
+          <div className="flex items-start space-x-3 fade-in">
+            <div className="w-8 h-8 rounded-full bg-accent text-accent-foreground flex items-center justify-center flex-shrink-0">
+              <Lightbulb className="w-4 h-4" />
+            </div>
+            <div className="bg-card text-card-foreground border border-border p-3 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Generating follow-up questions...</span>
               </div>
             </div>
           </div>
@@ -547,9 +616,9 @@ export default function ChatPage() {
                   ? "Please add your API key in settings first" 
                   : keyValidationStatus === 'invalid'
                   ? "Please validate your API key first"
-                  : keyValidationStatus === 'valid'
-                  ? "Type your message..."
-                  : "Type your message... (consider testing your API key first)"
+                  : !companyDocument
+                  ? "Upload a company document to start researching..."
+                  : `Ask about ${companyDocument.company_name}...`
               }
               disabled={!apiKey || isLoading || keyValidationStatus === 'invalid'}
               rows={1}
@@ -558,7 +627,7 @@ export default function ChatPage() {
           
           <button
             onClick={ragMode ? handleSendRagMessage : handleSendMessage}
-            disabled={!userInput.trim() || !apiKey || isLoading || keyValidationStatus === 'invalid' || (ragMode && !docId)}
+            disabled={!userInput.trim() || !apiKey || isLoading || keyValidationStatus === 'invalid' || (ragMode && !companyDocument)}
             className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
@@ -574,17 +643,73 @@ export default function ChatPage() {
         </p>
       </div>
 
-      {/* Upload and RAG toggle UI */}
-      <div className="p-4 bg-card border-b border-border flex flex-col gap-2">
-        <label className="font-semibold">Upload a PDF to chat with:</label>
-        <p className="text-xs text-secondary mb-2">Maximum file size: 10MB</p>
-        <input type="file" accept="application/pdf" onChange={handleFileUpload} disabled={uploading} className="file:mr-2 file:py-1 file:px-3 file:rounded file:border file:border-border file:bg-secondary file:text-foreground" />
-        {uploading && <span className="text-sm text-secondary">Uploading...</span>}
+      {/* Company Document Upload UI */}
+      <div className="p-4 bg-card border-b border-border flex flex-col gap-4">
+        <div className="flex items-center gap-2">
+          <FileText className="w-5 h-5 text-primary" />
+          <h3 className="font-semibold text-card-foreground">Upload Company Document</h3>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Company Name Input */}
+          <div>
+            <label className="block text-sm font-medium text-card-foreground mb-2">
+              Company Name
+            </label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              className="input-field w-full"
+              placeholder="e.g., Acme Corporation"
+            />
+          </div>
+          
+          {/* File Upload */}
+          <div>
+            <label className="block text-sm font-medium text-card-foreground mb-2">
+              Document (PDF)
+            </label>
+            <input 
+              type="file" 
+              accept="application/pdf" 
+              onChange={handleFileUpload} 
+              disabled={uploading || !companyName.trim() || !apiKey.trim()} 
+              className="file:mr-2 file:py-1 file:px-3 file:rounded file:border file:border-border file:bg-secondary file:text-foreground w-full" 
+            />
+            <p className="text-xs text-secondary mt-1">Maximum file size: 10MB</p>
+          </div>
+        </div>
+        
+        {/* Status Messages */}
+        {uploading && <span className="text-sm text-secondary">Uploading and processing document...</span>}
         {uploadError && <span className="text-sm text-red-500">{uploadError}</span>}
-        {docId && <span className="text-sm text-green-600">PDF uploaded. You can now chat with it!</span>}
-        <div className="flex items-center gap-2 mt-2">
-          <input type="checkbox" id="ragMode" checked={ragMode} onChange={e => setRagMode(e.target.checked)} disabled={!docId} />
-          <label htmlFor="ragMode" className="text-sm">Chat with PDF (RAG mode)</label>
+        {companyDocument && (
+          <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-500" />
+              <span className="text-sm text-green-600 font-medium">
+                {companyDocument.company_name} document uploaded successfully!
+              </span>
+            </div>
+            <p className="text-xs text-green-600/80 mt-1">
+              {companyDocument.filename} • {companyDocument.chunks_count} text chunks extracted
+            </p>
+          </div>
+        )}
+        
+        {/* Research Mode Toggle */}
+        <div className="flex items-center gap-2">
+          <input 
+            type="checkbox" 
+            id="ragMode" 
+            checked={ragMode} 
+            onChange={e => setRagMode(e.target.checked)} 
+            disabled={!companyDocument} 
+          />
+          <label htmlFor="ragMode" className="text-sm text-card-foreground">
+            Enable AI-powered company research mode
+          </label>
         </div>
       </div>
     </div>
