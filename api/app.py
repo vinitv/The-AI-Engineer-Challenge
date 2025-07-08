@@ -14,6 +14,7 @@ import uuid
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
 import asyncio
 import glob
+import requests
 
 # Initialize FastAPI application with a title
 app = FastAPI(title="California Real Estate Assistant API")
@@ -42,32 +43,36 @@ california_re_docs = {}  # Store for pre-loaded California real estate documents
 
 # Pre-load California real estate PDFs on startup
 def load_california_re_documents():
-    """Pre-load only relaw.pdf from the files directory to reduce build size"""
-    files_dir = "../files"  # Relative to api directory
+    """Download and load relaw.pdf from the official URL at runtime."""
+    files_dir = "../files"
+    os.makedirs(files_dir, exist_ok=True)
     pdf_file = f"{files_dir}/relaw.pdf"
-    
+    pdf_url = "https://www.dre.ca.gov/files/pdf/relaw/2025/relaw.pdf"
+
+    # Download if not present
+    if not os.path.exists(pdf_file):
+        print(f"Downloading relaw.pdf from {pdf_url} ...")
+        r = requests.get(pdf_url)
+        r.raise_for_status()
+        with open(pdf_file, "wb") as f:
+            f.write(r.content)
+        print("Download complete.")
+
+    # Now load as before
     try:
-        if os.path.exists(pdf_file):
-            filename = os.path.basename(pdf_file)
-            print(f"Loading California RE document: {filename}")
-            
-            # Extract text from PDF
-            loader = PDFLoader(pdf_file)
-            documents = loader.load_documents()
-            splitter = CharacterTextSplitter()
-            chunks = splitter.split_texts(documents)
-            
-            # Store with a special prefix for California RE docs
-            doc_id = f"cal_re_{filename.replace('.pdf', '')}"
-            california_re_docs[doc_id] = {
-                "chunks": chunks,
-                "filename": filename,
-                "type": "california_re"
-            }
-            print(f"Successfully loaded {len(chunks)} chunks from {filename}")
-        else:
-            print(f"Warning: {pdf_file} not found")
-            
+        filename = os.path.basename(pdf_file)
+        print(f"Loading California RE document: {filename}")
+        loader = PDFLoader(pdf_file)
+        documents = loader.load_documents()
+        splitter = CharacterTextSplitter()
+        chunks = splitter.split_texts(documents)
+        doc_id = f"cal_re_{filename.replace('.pdf', '')}"
+        california_re_docs[doc_id] = {
+            "chunks": chunks,
+            "filename": filename,
+            "type": "california_re"
+        }
+        print(f"Successfully loaded {len(chunks)} chunks from {filename}")
     except Exception as e:
         print(f"Error loading {pdf_file}: {e}")
 
