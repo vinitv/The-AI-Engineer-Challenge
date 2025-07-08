@@ -7,7 +7,8 @@
         "use": "@vercel/python",
         "config": {
           "runtime": "python3.11",
-          "maxLambdaSize": "15mb"
+          "maxLambdaSize": "15mb",
+          "maxDuration": 30
         }
       }
     ],
@@ -20,10 +21,5 @@
         "src": "/(.*)", 
         "dest": "frontend/$1"
       }
-    ],
-    "functions": {
-      "api/app.py": {
-        "maxDuration": 30
-      }
-    }
+    ]
   } 
